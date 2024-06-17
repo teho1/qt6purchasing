@@ -4,6 +4,8 @@
 #include "../abstractproduct.h"
 
 Q_FORWARD_DECLARE_OBJC_CLASS(SKProduct);
+Q_FORWARD_DECLARE_OBJC_CLASS(NSBundle);
+Q_FORWARD_DECLARE_OBJC_CLASS(NSError);
 
 class AppleAppStoreProduct : public AbstractProduct
 {

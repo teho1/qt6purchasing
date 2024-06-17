@@ -1,10 +1,38 @@
 #include "abstractproduct.h"
 #include "abstracttransaction.h"
 
-AbstractProduct::AbstractProduct(QObject * parent) : QObject(parent)
+AbstractProduct::AbstractProduct(QObject * parent) : QObject(parent), _purchased(false)
 {
     connect(this, &AbstractProduct::identifierChanged, this, &AbstractProduct::registerInStore);
     connect(this, &AbstractProduct::storeChanged, this, &AbstractProduct::registerInStore);
+}
+
+bool AbstractProduct::purchased() const
+{
+    return _purchased;
+}
+
+void AbstractProduct::setPurchased(bool newPurchased)
+{
+    qDebug() << "setPurchased: " << newPurchased;
+    if (_purchased == newPurchased)
+        return;
+    _purchased = newPurchased;
+    qDebug() << "emit signal";
+    emit purchasedChanged();
+}
+
+QString AbstractProduct::receipt() const
+{
+    return _receipt;
+}
+
+void AbstractProduct::setReceipt(const QString &newReceipt)
+{
+    if (_receipt == newReceipt)
+        return;
+    _receipt = newReceipt;
+    emit receiptChanged();
 }
 
 void AbstractProduct::setDescription(QString value)

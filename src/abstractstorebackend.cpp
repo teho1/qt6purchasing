@@ -31,16 +31,18 @@ AbstractStoreBackend::AbstractStoreBackend(QObject * parent) : QObject(parent)
         AbstractProduct * ap = product(transaction->productId());
         if (ap) {
             emit ap->purchaseSucceeded(transaction);
+            ap->setPurchased(true);
         } else {
             qCritical() << "Failed to map successful purchase to a product!";
         }
     });
     connect(this, &AbstractStoreBackend::purchaseRestored, [this](AbstractTransaction * transaction){
-        qDebug() << "purchaseRestored:" << transaction->orderId();
+        qDebug() << "purchaseRestored:" << transaction->orderId() << " productId: " << transaction->productId();
 
         AbstractProduct * ap = product(transaction->productId());
         if (ap) {
             emit ap->purchaseRestored(transaction);
+            ap->setPurchased(true);
         } else {
             qCritical() << "Failed to map restored purchase to a product!";
         }
@@ -54,6 +56,7 @@ AbstractStoreBackend::AbstractStoreBackend(QObject * parent) : QObject(parent)
         AbstractProduct * ap = product(transaction->productId());
         if (ap) {
             emit ap->purchaseConsumed(transaction);
+            ap->setPurchased(true);
         } else {
             qCritical() << "Failed to map consumed purchase to a product!";
         }
@@ -67,4 +70,19 @@ AbstractProduct * AbstractStoreBackend::product(const QString &identifier)
             return ap;
     }
     return nullptr;
+}
+
+QObject * AbstractStoreBackend::firstProduct() const
+{
+    return _products.isEmpty() ? nullptr : _products.first();
+}
+
+void AbstractStoreBackend::addProduct(QObject *product)
+{
+    AbstractProduct *ap = qobject_cast<AbstractProduct *>(product);
+    if (ap && !_products.contains(ap)) {
+        _products.append(ap);
+        if (_connected)
+            ap->registerInStore();
+    }
 }

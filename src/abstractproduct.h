@@ -17,11 +17,14 @@ class AbstractProduct : public QObject
     Q_PROPERTY(QString description READ description NOTIFY descriptionChanged)
     Q_PROPERTY(QString price READ price NOTIFY priceChanged)
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)
+    Q_PROPERTY(QString receipt READ receipt WRITE setReceipt NOTIFY receiptChanged FINAL)
+    Q_PROPERTY(bool purchased READ purchased WRITE setPurchased NOTIFY purchasedChanged)
 
 public:
     enum ProductType {
         Consumable,
-        Unlockable
+        Unlockable,
+        Subscription
     };
     Q_ENUM(ProductType)
     enum ProductStatus {
@@ -46,9 +49,15 @@ public:
     void setPrice(const QString &value);
     void setTitle(const QString &value);
 
-    void registerInStore();
+    Q_INVOKABLE void registerInStore();
 
     Q_INVOKABLE void purchase();
+
+    QString receipt() const;
+    void setReceipt(const QString &newReceipt);
+
+    bool purchased() const;
+    void setPurchased(bool newPurchased);
 
 protected:
     explicit AbstractProduct(QObject * parent = nullptr);
@@ -59,6 +68,8 @@ protected:
     QString _price;
     ProductType _productType;
     QString _title;
+    QString _receipt;
+    bool _purchased = false;
 
 signals:
     void storeChanged();
@@ -74,6 +85,10 @@ signals:
     void purchaseRestored(AbstractTransaction * transaction);
     void purchaseConsumed(AbstractTransaction * transaction);
 
+    void receiptChanged();
+    void purchasedChanged();
+
+private:
 };
 
 #endif // ABSTRACTPRODUCT_H

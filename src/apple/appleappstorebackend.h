@@ -17,8 +17,8 @@ public:
     void registerProduct(AbstractProduct * product) override;
     void purchaseProduct(AbstractProduct * product) override;
     void consumePurchase(AbstractTransaction * transaction) override;
-
-//    void emitProductRegistered(AbstractProduct * product);
+public slots:
+    void slotProductRegistered(AbstractProduct * product);
 private:
     QT_MANGLE_NAMESPACE(InAppPurchaseManager) * _iapManager = nullptr;
 
