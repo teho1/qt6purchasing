@@ -88,7 +88,7 @@
     Q_UNUSED(queue);
     for (SKPaymentTransaction * transaction in transactions) {
         AppleAppStoreTransaction * ta = new AppleAppStoreTransaction(backend, transaction);
-
+        AbstractProduct *product = backend->product(QString::fromNSString(transaction.payment.productIdentifier));
         switch (static_cast<AppleAppStoreTransaction::AppleAppStoreTransactionState>(transaction.transactionState)) {
         case AppleAppStoreTransaction::Purchasing:
             //unhandled
@@ -100,8 +100,12 @@
             QMetaObject::invokeMethod(backend, "purchaseFailed", Qt::AutoConnection, Q_ARG(int, transaction.error.code));
             break;
         case AppleAppStoreTransaction::Restored:
+            qDebug() << "Status restored: " << ta->productId();
+            if (product) {
+                product->setPurchased(true);
+            }
             QMetaObject::invokeMethod(backend, "purchaseRestored", Qt::AutoConnection, Q_ARG(AbstractTransaction*, ta));
-            break;
+           break;
         case AppleAppStoreTransaction::Deferred:
             //unhandled
             break;
@@ -128,6 +132,7 @@ void AppleAppStoreBackend::startConnection()
 void AppleAppStoreBackend::registerProduct(AbstractProduct * product)
 {
     [_iapManager requestProductData:(product->identifier().toNSString())];
+    [_iapManager refreshPurchases];
 }
 
 void AppleAppStoreBackend::purchaseProduct(AbstractProduct * product)

@@ -5,13 +5,14 @@ import android.content.Context;
 
 import com.android.billingclient.api.*;
 import com.android.billingclient.api.BillingClient.BillingResponseCode;
-import com.android.billingclient.api.SkuDetailsParams.*;
+import com.android.billingclient.api.SkuDetailsParams.Builder;
 import com.android.billingclient.api.BillingClient.SkuType;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import org.json.*;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 public class GooglePlayBilling {
 
@@ -31,20 +32,22 @@ public class GooglePlayBilling {
     private BillingClient billingClient;
 
     public GooglePlayBilling(Context cnt) {
-        System.out.println("GooglePlayBilling constructor called with context argument " + cnt);
         this.context = cnt;
 
         purchasesUpdatedListener = new PurchasesUpdatedListener() {
             public void onPurchasesUpdated(BillingResult billingResult, List<Purchase> purchases) {
+                debugMessage("onPurchasesUpdated called with response code: " + billingResult.getResponseCode());
                 if (billingResult.getResponseCode() == BillingResponseCode.OK && purchases != null) {
+                    debugMessage("Purchase successful");
                     for (Purchase purchase : purchases) {
+                        debugMessage("Processing purchase: " + purchase.getOriginalJson());
                         purchaseSucceeded(purchase.getOriginalJson());
                     }
                 } else if (billingResult.getResponseCode() == BillingResponseCode.USER_CANCELED) {
-                    // Handle an error caused by a user cancelling the purchase flow.
+                    debugMessage("Purchase canceled by user");
                     purchaseFailed(billingResult.getResponseCode());
                 } else {
-                    // Handle any other error codes.
+                    debugMessage("Purchase failed with response code: " + billingResult.getResponseCode());
                     purchaseFailed(billingResult.getResponseCode());
                 }
             }
@@ -53,10 +56,15 @@ public class GooglePlayBilling {
         purchasesResponseListener = new PurchasesResponseListener() {
             @Override
             public void onQueryPurchasesResponse(BillingResult billingResult, List<Purchase> purchases) {
+                debugMessage("onQueryPurchasesResponse called with response code: " + billingResult.getResponseCode());
                 if (!purchases.isEmpty()) {
+                    debugMessage("Restoring purchases");
                     for (Purchase purchase : purchases) {
+                        debugMessage("Restoring purchase: " + purchase.getOriginalJson());
                         purchaseRestored(purchase.getOriginalJson());
                     }
+                } else {
+                    debugMessage("No purchases to restore");
                 }
             }
         };
@@ -67,69 +75,93 @@ public class GooglePlayBilling {
                 .build();
     }
 
-
     public void startConnection() {
         debugMessage("Starting connection to Google Play Store");
 
         billingClient.startConnection(new BillingClientStateListener() {
             @Override
             public void onBillingSetupFinished(BillingResult billingResult) {
+                debugMessage("onBillingSetupFinished called with response code: " + billingResult.getResponseCode());
                 billingResponseReceived(billingResult.getResponseCode());
-                if (billingResult.getResponseCode() ==  BillingResponseCode.OK) {
+                if (billingResult.getResponseCode() == BillingResponseCode.OK) {
+                    debugMessage("Billing client setup finished successfully");
                     connectedChangedHelper(true);
-                    // The BillingClient is ready. query purchases here.
-                    billingClient.queryPurchasesAsync(SkuType.INAPP, purchasesResponseListener);
-
                 } else {
+                    debugMessage("Billing client setup failed");
                     connectedChangedHelper(false);
                 }
             }
+
             @Override
             public void onBillingServiceDisconnected() {
-                // Try to restart the connection on the next request to
-                // Google Play by calling the startConnection() method.
+                debugMessage("onBillingServiceDisconnected called");
                 connectedChangedHelper(false);
             }
         });
-    };
+    }
+
+    public void queryPurchases() {
+        debugMessage("Querying purchases");
+        billingClient.queryPurchasesAsync(SkuType.SUBS, purchasesResponseListener);
+    }
 
     public void registerProduct(final String productId) {
-        List<String> skuList = new ArrayList<> ();
+        debugMessage("Registering product with ID: " + productId);
+        List<String> skuList = new ArrayList<>();
         skuList.add(productId);
         SkuDetailsParams.Builder params = SkuDetailsParams.newBuilder();
-        params.setSkusList(skuList).setType(SkuType.INAPP);
+        params.setSkusList(skuList).setType(SkuType.SUBS);
+        debugMessage("SkuDetailsParams: " + params.build().toString());
         billingClient.querySkuDetailsAsync(params.build(),
             new SkuDetailsResponseListener() {
                 @Override
-                public void onSkuDetailsResponse(BillingResult billingResult,
-                        List<SkuDetails> skuDetailsList) {
-                    if (skuDetailsList == null)
-//                        throw new NullPointerException("skuDetailsList is null");
-                        return;
+                public void onSkuDetailsResponse(BillingResult billingResult, List<SkuDetails> skuDetailsList) {
+                  debugMessage("onSkuDetailsResponse called with response code: " + billingResult.getResponseCode());
+                  if (skuDetailsList == null) {
+                      debugMessage("skuDetailsList is null");
+                      return;
+                  }
+                  if (skuDetailsList.isEmpty()) {
+                      debugMessage("skuDetailsList is empty");
+                      return;
+                  }
 
-                    billingResponseReceived(billingResult.getResponseCode());
-                    productRegistered(skuDetailsList.get(0).getOriginalJson());
+                  debugMessage("skuDetailsList size: " + skuDetailsList.size());
+                  for (SkuDetails skuDetails : skuDetailsList) {
+                      debugMessage("SKU Details: " + skuDetails.getOriginalJson());
+                  }
+
+                  billingResponseReceived(billingResult.getResponseCode());
+                  SkuDetails skuDetails = skuDetailsList.get(0);
+                  debugMessage("Product registered: " + skuDetails.getOriginalJson());
+                  productRegistered(skuDetails.getOriginalJson());
+                  queryPurchases();
                 }
             });
-    };
+    }
 
     public void purchaseProduct(Activity activity, final String jsonSkuDetails) {
         try {
+            debugMessage("Initiating purchase for SKU details: " + jsonSkuDetails);
             SkuDetails purchaseThis = new SkuDetails(jsonSkuDetails);
 
             BillingFlowParams billingFlowParams = BillingFlowParams.newBuilder()
                 .setSkuDetails(purchaseThis)
                 .build();
             int responseCode = billingClient.launchBillingFlow(activity, billingFlowParams).getResponseCode();
+            debugMessage("Billing flow launched with response code: " + responseCode);
         } catch (JSONException e) {
+            debugMessage("JSONException during purchase: " + e.getMessage());
             throw new RuntimeException(e);
         }
-    };
+    }
 
     public void consumePurchase(final String jsonPurchaseString) {
+        debugMessage("Consuming purchase: " + jsonPurchaseString);
         ConsumeResponseListener listener = new ConsumeResponseListener() {
             @Override
             public void onConsumeResponse (BillingResult billingResult, String purchaseToken) {
+                debugMessage("onConsumeResponse called with response code: " + billingResult.getResponseCode());
                 if (billingResult.getResponseCode() == BillingResponseCode.OK) {
                     purchaseConsumed(jsonPurchaseString);
                 }
@@ -147,6 +179,7 @@ public class GooglePlayBilling {
             billingClient.consumeAsync(consumeParams, listener);
 
         } catch (JSONException e) {
+            debugMessage("JSONException during consumption: " + e.getMessage());
             throw new RuntimeException(e);
         }
     }

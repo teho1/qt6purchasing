@@ -66,11 +66,17 @@ void GooglePlayStoreBackend::registerProduct(AbstractProduct * product)
 
 /*static*/ void GooglePlayStoreBackend::productRegistered(JNIEnv * env, jobject object, jstring message)
 {
-    QJsonObject json = QJsonDocument::fromJson(env->GetStringUTFChars(message, nullptr)).object();
+    const char *nativeMessage = env->GetStringUTFChars(message, nullptr);
+    qDebug() << "productRegistered called with message:" << nativeMessage;
+    QJsonObject json = QJsonDocument::fromJson(nativeMessage).object();
+    env->ReleaseStringUTFChars(message, nativeMessage);
 
-    GooglePlayStoreProduct * product = reinterpret_cast<GooglePlayStoreProduct *>(AbstractStoreBackend::instance()->product( json["productId"].toString() ));
+    qDebug() << "Parsed JSON:" << QJsonDocument(json).toJson(QJsonDocument::Compact);
+
+    GooglePlayStoreProduct * product = reinterpret_cast<GooglePlayStoreProduct *>(AbstractStoreBackend::instance()->product(json["productId"].toString()));
 
     if (product) {
+        qDebug() << "Product found, updating details...";
         product->setJson(json);
         product->setDescription(json["description"].toString());
         product->setPrice(json["price"].toString());
