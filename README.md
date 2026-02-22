@@ -154,7 +154,7 @@ To add In-App-Purchasing capabilities to your Qt6/QML project follow the steps b
 1. In your QML file include the purchasing classes:
   ```qml
   import Store
-  import Product  
+  import Product
   ```
 2. Use it like this, for a product that is called "test_1" in the app store(s):
   ```qml
