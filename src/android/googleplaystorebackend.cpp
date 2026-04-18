@@ -9,11 +9,15 @@
 
 GooglePlayStoreBackend::GooglePlayStoreBackend(QObject * parent) : AbstractStoreBackend(parent)
 {
+
     _googlePlayBillingJavaClass = new QJniObject(
         "com/climbsmart/crimptronic/GooglePlayBilling",
-        "(Landroid/content/Context;)V",
-        QNativeInterface::QAndroidApplication::context()
-    );
+        QNativeInterface::QAndroidApplication::context());
+
+    if (!_googlePlayBillingJavaClass->isValid()) {
+        qWarning("Cannot initialize IAP backend for Android.");
+        return;
+    }
 
     JNINativeMethod methods[] {
         {"debugMessage", "(Ljava/lang/String;)V", reinterpret_cast<void *>(debugMessage)},

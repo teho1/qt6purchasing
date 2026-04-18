@@ -18,7 +18,7 @@ class AbstractProduct : public QObject
     Q_PROPERTY(QString price READ price NOTIFY priceChanged)
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)
     Q_PROPERTY(QString receipt READ receipt WRITE setReceipt NOTIFY receiptChanged FINAL)
-    Q_PROPERTY(bool purchased READ purchased WRITE setPurchased NOTIFY purchasedChanged FINAL)
+    Q_PROPERTY(bool purchased READ purchased WRITE setPurchased NOTIFY purchasedChanged)
 
 public:
     enum ProductType {
@@ -69,7 +69,7 @@ protected:
     ProductType _productType;
     QString _title;
     QString _receipt;
-    bool _purchased;
+    bool _purchased = false;
 
 signals:
     void storeChanged();

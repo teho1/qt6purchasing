@@ -1,7 +1,7 @@
 #include "abstractproduct.h"
 #include "abstracttransaction.h"
 
-AbstractProduct::AbstractProduct(QObject * parent) : QObject(parent)
+AbstractProduct::AbstractProduct(QObject * parent) : QObject(parent), _purchased(false)
 {
     connect(this, &AbstractProduct::identifierChanged, this, &AbstractProduct::registerInStore);
     connect(this, &AbstractProduct::storeChanged, this, &AbstractProduct::registerInStore);

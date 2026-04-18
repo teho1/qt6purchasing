@@ -14,6 +14,7 @@
 }
 
 -(void)requestProductData:(NSString *)identifier;
+-(void)refreshPurchases;
 
 @end
 
@@ -72,9 +73,8 @@
             product->setPrice(QString::fromNSString(localizedPrice));
             product->setTitle(QString::fromNSString(skProduct.localizedTitle));
             product->setStatus(AbstractProduct::Registered);
-
             QMetaObject::invokeMethod(backend, "productRegistered", Qt::AutoConnection, Q_ARG(AbstractProduct*, product));
-        } else {
+    } else {
         }
     }
 
@@ -85,6 +85,7 @@
 //SKPaymentTransactionObserver
 - (void)paymentQueue:(SKPaymentQueue *)queue updatedTransactions:(NSArray<SKPaymentTransaction *> *)transactions
 {
+    qDebug() << "updatedTransactions";
     Q_UNUSED(queue);
     for (SKPaymentTransaction * transaction in transactions) {
         AppleAppStoreTransaction * ta = new AppleAppStoreTransaction(backend, transaction);
@@ -105,7 +106,7 @@
                 product->setPurchased(true);
             }
             QMetaObject::invokeMethod(backend, "purchaseRestored", Qt::AutoConnection, Q_ARG(AbstractTransaction*, ta));
-           break;
+        break;
         case AppleAppStoreTransaction::Deferred:
             //unhandled
             break;
@@ -113,10 +114,37 @@
     }
 }
 
+- (void)paymentQueueRestoreCompletedTransactionsFinished:(SKPaymentQueue *)queue {
+    NSLog(@"received restored transactions: %lu", (unsigned long)queue.transactions.count);
+    for(SKPaymentTransaction *transaction in queue.transactions){
+        if(transaction.transactionState == SKPaymentTransactionStateRestored){
+          AbstractProduct *product = backend->product(QString::fromNSString(transaction.payment.productIdentifier));
+          if (product) {
+              product->setPurchased(true);
+          }
+       }
+    }
+}
+
+
+- (void)paymentQueue:(SKPaymentQueue *)queue restoreCompletedTransactionsFailedWithError:(NSError *)error {
+    NSLog(@"Failed to restore transactions: %@", error.localizedDescription);
+    // Inform the user that the restore failed
+    // Consider providing an option to retry or check their network settings
+}
+
+
+- (void)refreshPurchases {
+    qDebug() << "refreshPurchases";
+    [[SKPaymentQueue defaultQueue] restoreCompletedTransactions];
+}
+
+
 @end
 
 AppleAppStoreBackend::AppleAppStoreBackend(QObject * parent) : AbstractStoreBackend(parent)
 {
+    connect(this, &AbstractStoreBackend::productRegistered, this, &AppleAppStoreBackend::slotProductRegistered, Qt::QueuedConnection);
     this->startConnection();
 }
 
@@ -132,7 +160,6 @@ void AppleAppStoreBackend::startConnection()
 void AppleAppStoreBackend::registerProduct(AbstractProduct * product)
 {
     [_iapManager requestProductData:(product->identifier().toNSString())];
-    [_iapManager refreshPurchases];
 }
 
 void AppleAppStoreBackend::purchaseProduct(AbstractProduct * product)
@@ -151,5 +178,11 @@ void AppleAppStoreBackend::consumePurchase(AbstractTransaction * transaction)
 
 AppleAppStoreBackend::~AppleAppStoreBackend()
 {
-    [_iapManager release];
+  [_iapManager release];
+}
+
+void AppleAppStoreBackend::slotProductRegistered(AbstractProduct * product)
+{
+    qDebug() << "Product registered";
+    [_iapManager refreshPurchases];
 }

@@ -17,14 +17,23 @@ public:
     // Implementing startConnection with no operation
     virtual void startConnection() override {}
 
-    // Implementing registerProduct with no operation
-    virtual void registerProduct(AbstractProduct *product) override {}
+    // On desktop/debug the dummy backend immediately marks every registered
+    // product as available so the purchase flow can be exercised without a
+    // real App Store / Google Play connection.
+    virtual void registerProduct(AbstractProduct *product) override {
+        if (product)
+            product->setStatus(AbstractProduct::Registered);
+    }
 
     // Implementing purchaseProduct with no operation
-    virtual void purchaseProduct(AbstractProduct *product) override {}
+    virtual void purchaseProduct(AbstractProduct *product) override {
+        Q_UNUSED(product);
+    }
 
     // Implementing consumePurchase with no operation
-    virtual void consumePurchase(AbstractTransaction *transaction) override {}
+    virtual void consumePurchase(AbstractTransaction *transaction) override {
+        Q_UNUSED(transaction);
+    }
 
 };
 
@@ -39,7 +48,7 @@ public:
         _productType = ProductType::Consumable;
         _title = "";
         _receipt = "";
-        _purchased = true;
+        _purchased = false;
         _status = ProductStatus::Unitialized;
     }
 
