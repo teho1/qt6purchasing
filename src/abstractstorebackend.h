@@ -22,6 +22,8 @@ public:
     bool isConnected() const { return _connected; }
 
     virtual void startConnection() = 0;
+    /** QML cannot call pure virtuals; delegates to the concrete store implementation. */
+    Q_INVOKABLE void startStoreConnection() { startConnection(); }
     virtual void registerProduct(AbstractProduct * product) = 0;
     virtual void purchaseProduct(AbstractProduct * product) = 0;
     virtual void consumePurchase(AbstractTransaction * transaction) = 0;
