@@ -1,6 +1,8 @@
 #include "abstractproduct.h"
 #include "abstracttransaction.h"
 
+#include <QCoreApplication>
+
 AbstractProduct::AbstractProduct(QObject * parent) : QObject(parent), _purchased(false)
 {
     connect(this, &AbstractProduct::identifierChanged, this, &AbstractProduct::registerInStore);
@@ -51,6 +53,14 @@ void AbstractProduct::setPrice(const QString &value)
 {
     _price = value;
     emit priceChanged();
+}
+
+void AbstractProduct::setBillingPeriodDescription(const QString &value)
+{
+    if (_billingPeriodDescription == value)
+        return;
+    _billingPeriodDescription = value;
+    emit billingPeriodDescriptionChanged();
 }
 
 void AbstractProduct::setProductType(ProductType type)
@@ -117,4 +127,32 @@ void AbstractProduct::purchase()
     }
 
     AbstractStoreBackend::instance()->purchaseProduct(this);
+}
+
+QString subscriptionBillingSuffixFromRcUnits(int rcUnit, int value)
+{
+    if (value < 1 || rcUnit < 0 || rcUnit > 3)
+        return QString();
+
+    auto trPeriod = [](const char *singular, const char *plural, int n) -> QString {
+        if (n == 1)
+            return QCoreApplication::translate("PaymentAdPage", singular);
+        return QCoreApplication::translate("PaymentAdPage", plural).arg(QString::number(n));
+    };
+
+    // RevenueCat RCSubscriptionPeriodUnit: Day=0, Week=1, Month=2, Year=3
+    switch (rcUnit) {
+    case 0:
+        return trPeriod(" / day", " / %1 days", value);
+    case 1:
+        return trPeriod(" / week", " / %1 weeks", value);
+    case 2:
+        if (value == 1)
+            return QCoreApplication::translate("PaymentAdPage", " / kuukausi");
+        return QCoreApplication::translate("PaymentAdPage", " / %1 months").arg(QString::number(value));
+    case 3:
+        return trPeriod(" / year", " / %1 years", value);
+    default:
+        return QString();
+    }
 }

@@ -4,6 +4,7 @@
 #include <QDebug>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QtCore/qcoreapplication_platform.h> // QNativeInterface::QAndroidApplication (Qt 6 Android)
 
 RevenueCatStoreBackend::RevenueCatStoreBackend(QObject * parent) : AbstractStoreBackend(parent)
 {
@@ -48,8 +49,8 @@ void RevenueCatStoreBackend::configure(const QString &apiKey, const QString &app
         {"productRegistered", "(Ljava/lang/String;)V", reinterpret_cast<void *>(productRegistered)},
         {"purchaseSucceeded", "(Ljava/lang/String;)V", reinterpret_cast<void *>(purchaseSucceeded)},
         {"purchaseRestored", "(Ljava/lang/String;)V", reinterpret_cast<void *>(purchaseRestored)},
-        {"purchaseFailed", "(I)V", reinterpret_cast<void *>(purchaseFailed)},
-        {"purchaseConsumed", "(Ljava/lang/String;)V", reinterpret_cast<void *>(purchaseConsumed)},
+        {"purchaseFailed", "(I)V", reinterpret_cast<void *>(jniPurchaseFailed)},
+        {"purchaseConsumed", "(Ljava/lang/String;)V", reinterpret_cast<void *>(jniPurchaseConsumed)},
     };
     QJniEnvironment env;
     jclass objectClass = env->GetObjectClass(_revenueCatJavaClass->object<jobject>());
@@ -79,6 +80,19 @@ void RevenueCatStoreBackend::startConnection()
     if (_revenueCatJavaClass && _revenueCatJavaClass->isValid()) {
         _revenueCatJavaClass->callMethod<void>("startConnection");
     }
+}
+
+void RevenueCatStoreBackend::restorePurchases()
+{
+    if (!_configured) {
+        qWarning() << "RevenueCat not configured; cannot restore purchases";
+        return;
+    }
+    if (!_revenueCatJavaClass || !_revenueCatJavaClass->isValid()) {
+        qWarning() << "RevenueCat Java bridge not initialized; cannot restore purchases";
+        return;
+    }
+    _revenueCatJavaClass->callMethod<void>("restorePurchases");
 }
 
 void RevenueCatStoreBackend::registerProduct(AbstractProduct * product)
@@ -167,6 +181,13 @@ void RevenueCatStoreBackend::consumePurchase(AbstractTransaction * transaction)
     if (product) {
         product->setDescription(json["description"].toString());
         product->setPrice(json["price"].toString());
+        if (json.contains(QStringLiteral("billingPeriodUnit")) && json.contains(QStringLiteral("billingPeriodValue"))) {
+            const int u = json.value(QStringLiteral("billingPeriodUnit")).toInt(-1);
+            const int v = json.value(QStringLiteral("billingPeriodValue")).toInt(0);
+            product->setBillingPeriodDescription(subscriptionBillingSuffixFromRcUnits(u, v));
+        } else {
+            product->setBillingPeriodDescription(QString());
+        }
         product->setTitle(json["title"].toString());
         product->setStatus(AbstractProduct::Registered);
         if (json.contains("packageIdentifier")) {
@@ -210,14 +231,14 @@ void RevenueCatStoreBackend::consumePurchase(AbstractTransaction * transaction)
     emit RevenueCatStoreBackend::instance()->purchaseRestored(transaction);
 }
 
-/*static*/ void RevenueCatStoreBackend::purchaseFailed(JNIEnv * env, jobject object, jint errorCode)
+/*static*/ void RevenueCatStoreBackend::jniPurchaseFailed(JNIEnv * env, jobject object, jint errorCode)
 {
     Q_UNUSED(env)
     Q_UNUSED(object)
     emit RevenueCatStoreBackend::instance()->purchaseFailed(errorCode);
 }
 
-/*static*/ void RevenueCatStoreBackend::purchaseConsumed(JNIEnv * env, jobject object, jstring transactionJson)
+/*static*/ void RevenueCatStoreBackend::jniPurchaseConsumed(JNIEnv * env, jobject object, jstring transactionJson)
 {
     Q_UNUSED(object)
     const char *nativeMessage = env->GetStringUTFChars(transactionJson, nullptr);

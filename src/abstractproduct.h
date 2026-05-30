@@ -16,6 +16,8 @@ class AbstractProduct : public QObject
     Q_PROPERTY(ProductStatus status READ status NOTIFY statusChanged)
     Q_PROPERTY(QString description READ description NOTIFY descriptionChanged)
     Q_PROPERTY(QString price READ price NOTIFY priceChanged)
+    /// Localized suffix for the billing cycle, e.g. " / month" (from store). Empty until product is registered.
+    Q_PROPERTY(QString billingPeriodDescription READ billingPeriodDescription NOTIFY billingPeriodDescriptionChanged)
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)
     Q_PROPERTY(QString receipt READ receipt WRITE setReceipt NOTIFY receiptChanged FINAL)
     Q_PROPERTY(bool purchased READ purchased WRITE setPurchased NOTIFY purchasedChanged)
@@ -41,12 +43,14 @@ public:
     QString price() const { return _price; }
     ProductType productType() const { return _productType; }
     QString title() const { return _title; }
+    QString billingPeriodDescription() const { return _billingPeriodDescription; }
 
     void setIdentifier(const QString &value);
     void setProductType(ProductType type);
     void setStatus(ProductStatus status);
     void setDescription(QString value);
     void setPrice(const QString &value);
+    void setBillingPeriodDescription(const QString &value);
     void setTitle(const QString &value);
 
     void registerInStore();
@@ -66,6 +70,7 @@ protected:
     QString _identifier;
     QString _description;
     QString _price;
+    QString _billingPeriodDescription;
     ProductType _productType;
     QString _title;
     QString _receipt;
@@ -77,6 +82,7 @@ signals:
     void identifierChanged();
     void descriptionChanged();
     void priceChanged();
+    void billingPeriodDescriptionChanged();
     void productTypeChanged();
     void titleChanged();
 
@@ -90,5 +96,8 @@ signals:
 
 private:
 };
+
+/// Maps RevenueCat / StoreKit period (unit + value) to a short UI suffix, e.g. " / month".
+QString subscriptionBillingSuffixFromRcUnits(int rcUnit, int value);
 
 #endif // ABSTRACTPRODUCT_H

@@ -17,6 +17,26 @@
 #include <QMetaObject>
 #include <QString>
 
+// Align with Android RevenueCatBilling: Play-style "subscriptionId:basePlanId" vs app id alone.
+// iOS is usually an exact match, but the same Qt identifier is used on both platforms.
+static BOOL rh_storeProductIdMatchesRequested(NSString *storeId, NSString *requested)
+{
+    if (requested.length == 0 || storeId.length == 0)
+        return NO;
+    if ([storeId isEqualToString:requested])
+        return YES;
+    NSString *withColon = [requested stringByAppendingString:@":"];
+    if ([storeId hasPrefix:withColon])
+        return YES;
+    NSRange colon = [storeId rangeOfString:@":"];
+    if (colon.location != NSNotFound) {
+        NSString *base = [storeId substringToIndex:colon.location];
+        if ([base isEqualToString:requested])
+            return YES;
+    }
+    return NO;
+}
+
 @interface QT_MANGLE_NAMESPACE(RevenueCatManager) : NSObject <RCPurchasesDelegate>
 {
     RevenueCatStoreBackend * backend;
@@ -29,6 +49,7 @@
 - (void)restorePurchases;
 - (void)applyCustomerInfo:(RCCustomerInfo *)customerInfo;
 - (void)fetchCurrentCustomerInfoAndApply;
+- (BOOL)isQtProductPurchased:(AbstractProduct *)product inCustomerInfo:(RCCustomerInfo *)customerInfo;
 
 @end
 
@@ -74,14 +95,27 @@
         RCPackage *foundPackage = nil;
         for (RCOffering *offering in offerings.all.allValues) {
             for (RCPackage *package in offering.availablePackages) {
-                if ([package.storeProduct.productIdentifier isEqualToString:identifier]) {
+                if (rh_storeProductIdMatchesRequested(package.storeProduct.productIdentifier, identifier)) {
                     foundPackage = package;
                     break;
                 }
             }
             if (foundPackage) break;
         }
-        
+
+        if (!foundPackage) {
+            NSMutableString *seen = [NSMutableString string];
+            for (RCOffering *offering in offerings.all.allValues) {
+                for (RCPackage *package in offering.availablePackages) {
+                    if (seen.length)
+                        [seen appendString:@", "];
+                    [seen appendString:package.storeProduct.productIdentifier];
+                }
+            }
+            NSLog(@"RevenueCat: no package for app id \"%@\". Store product ids in offerings: [%@]",
+                  identifier, seen.length ? seen : @"(none — check RevenueCat offering / App Store Connect)");
+        }
+
         if (foundPackage) {
             // In RevenueCat 5.x storeProduct is RCStoreProduct (not SKProduct).
             // localizedPriceString is a pre-formatted locale-aware price string.
@@ -91,6 +125,13 @@
             if (qtProduct) {
                 qtProduct->setDescription(QString::fromNSString(product.localizedDescription));
                 qtProduct->setPrice(QString::fromNSString(product.localizedPriceString));
+                if (product.subscriptionPeriod) {
+                    qtProduct->setBillingPeriodDescription(
+                        subscriptionBillingSuffixFromRcUnits(static_cast<int>(product.subscriptionPeriod.unit),
+                                                             static_cast<int>(product.subscriptionPeriod.value)));
+                } else {
+                    qtProduct->setBillingPeriodDescription(QString());
+                }
                 qtProduct->setTitle(QString::fromNSString(product.localizedTitle));
                 qtProduct->setStatus(AbstractProduct::Registered);
                 qtProduct->setPackageIdentifier(QString::fromNSString(foundPackage.identifier));
@@ -121,7 +162,7 @@
         } else {
             for (RCOffering *offering in offerings.all.allValues) {
                 for (RCPackage *package in offering.availablePackages) {
-                    if ([package.storeProduct.productIdentifier isEqualToString:identifier]) {
+                    if (rh_storeProductIdMatchesRequested(package.storeProduct.productIdentifier, identifier)) {
                         packageToPurchase = package;
                         break;
                     }
@@ -165,8 +206,17 @@
             NSLog(@"RevenueCat restore error: %@", error.localizedDescription);
             return;
         }
-        
+
+        [self applyCustomerInfo:customerInfo];
+
         for (NSString *productId in customerInfo.allPurchasedProductIdentifiers) {
+            AbstractProduct *qtProduct = backend->product(QString::fromNSString(productId));
+            if (qtProduct && qtProduct->productType() == AbstractProduct::Subscription
+                && ![self isQtProductPurchased:qtProduct inCustomerInfo:customerInfo]) {
+                NSLog(@"RevenueCat restore: ignoring expired subscription history for %@", productId);
+                continue;
+            }
+
             RevenueCatTransaction *qtTransaction = new RevenueCatTransaction(
                 backend,
                 QString("restored_%1").arg(QString::fromNSString(productId)),
@@ -181,20 +231,50 @@
 
 #pragma mark - Customer info → Qt product state
 
-- (BOOL)isProductIdentifierActive:(NSString *)pid inCustomerInfo:(RCCustomerInfo *)info
+- (BOOL)isSubscriptionProductIdentifierActive:(NSString *)pid inCustomerInfo:(RCCustomerInfo *)info
 {
     if (!pid.length || !info)
         return NO;
-    if ([info.activeSubscriptions containsObject:pid])
-        return YES;
+
+    for (NSString *activeSubscriptionId in info.activeSubscriptions) {
+        if (rh_storeProductIdMatchesRequested(activeSubscriptionId, pid))
+            return YES;
+    }
+
     NSDictionary<NSString *, RCEntitlementInfo *> *activeEnts = info.entitlements.activeInCurrentEnvironment;
     for (NSString *key in activeEnts) {
         RCEntitlementInfo *e = activeEnts[key];
-        if (e.isActive && [e.productIdentifier isEqualToString:pid])
+        if (e.isActive && rh_storeProductIdMatchesRequested(e.productIdentifier, pid))
             return YES;
     }
-    // Align with restorePurchases path and legacy receipts
-    return [info.allPurchasedProductIdentifiers containsObject:pid];
+
+    return NO;
+}
+
+- (BOOL)isProductIdentifierHistoricallyPurchased:(NSString *)pid inCustomerInfo:(RCCustomerInfo *)info
+{
+    if (!pid.length || !info)
+        return NO;
+
+    for (NSString *purchasedProductId in info.allPurchasedProductIdentifiers) {
+        if (rh_storeProductIdMatchesRequested(purchasedProductId, pid))
+            return YES;
+    }
+
+    return NO;
+}
+
+- (BOOL)isQtProductPurchased:(AbstractProduct *)product inCustomerInfo:(RCCustomerInfo *)customerInfo
+{
+    if (!product || !customerInfo)
+        return NO;
+
+    NSString *pid = [NSString stringWithUTF8String:product->identifier().toUtf8().constData()];
+    if (product->productType() == AbstractProduct::Subscription)
+        return [self isSubscriptionProductIdentifierActive:pid inCustomerInfo:customerInfo];
+
+    // Non-subscription purchases do not expire, so the RevenueCat historical set remains valid.
+    return [self isProductIdentifierHistoricallyPurchased:pid inCustomerInfo:customerInfo];
 }
 
 - (void)applyCustomerInfo:(RCCustomerInfo *)customerInfo
@@ -202,8 +282,12 @@
     if (!customerInfo)
         return;
     for (AbstractProduct *product : backend->products()) {
-        NSString *pid = [NSString stringWithUTF8String:product->identifier().toUtf8().constData()];
-        BOOL active = [self isProductIdentifierActive:pid inCustomerInfo:customerInfo];
+        BOOL active = [self isQtProductPurchased:product inCustomerInfo:customerInfo];
+        if (!active && product->productType() == AbstractProduct::Subscription) {
+            NSString *pid = [NSString stringWithUTF8String:product->identifier().toUtf8().constData()];
+            if ([self isProductIdentifierHistoricallyPurchased:pid inCustomerInfo:customerInfo])
+                NSLog(@"RevenueCat: subscription %@ was purchased historically but is not active", pid);
+        }
         if (active != product->purchased()) {
             QMetaObject::invokeMethod(product, [product, active]() {
                 product->setPurchased(active);

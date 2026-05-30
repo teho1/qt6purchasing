@@ -65,8 +65,25 @@ AbstractStoreBackend::AbstractStoreBackend(QObject * parent) : QObject(parent)
 
 AbstractProduct * AbstractStoreBackend::product(const QString &identifier)
 {
+    if (identifier.isEmpty())
+        return nullptr;
+
     for (AbstractProduct * ap : _products) {
-        if (ap->identifier() == identifier)
+        const QString pid = ap->identifier();
+        if (pid.isEmpty())
+            continue;
+        if (pid == identifier)
+            return ap;
+        // Google Play (Billing 5 / RevenueCat): store id is often "subscriptionId:basePlanId"
+        if (identifier.startsWith(pid + QLatin1Char(':')))
+            return ap;
+        if (pid.startsWith(identifier + QLatin1Char(':')))
+            return ap;
+        const int ic = identifier.indexOf(QLatin1Char(':'));
+        if (ic > 0 && pid == identifier.left(ic))
+            return ap;
+        const int pc = pid.indexOf(QLatin1Char(':'));
+        if (pc > 0 && identifier == pid.left(pc))
             return ap;
     }
     return nullptr;

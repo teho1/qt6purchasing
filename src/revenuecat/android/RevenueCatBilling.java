@@ -1,17 +1,17 @@
 package com.climbsmart.crimptronic;
 
 import android.app.Activity;
-import android.content.Context;
 import com.revenuecat.purchases.Purchases;
 import com.revenuecat.purchases.PurchasesConfiguration;
 import com.revenuecat.purchases.Offerings;
 import com.revenuecat.purchases.Offering;
 import com.revenuecat.purchases.Package;
-import com.revenuecat.purchases.StoreProduct;
-import com.revenuecat.purchases.interfaces.GetOfferingsCallback;
+import com.revenuecat.purchases.CustomerInfo;
+import com.revenuecat.purchases.interfaces.ReceiveOfferingsCallback;
 import com.revenuecat.purchases.interfaces.PurchaseCallback;
+import com.revenuecat.purchases.models.StoreProduct;
 import com.revenuecat.purchases.models.StoreTransaction;
-import com.revenuecat.purchases.models.CustomerInfo;
+import com.revenuecat.purchases.models.Period;
 import com.revenuecat.purchases.PurchasesError;
 import org.json.JSONObject;
 import org.json.JSONException;
@@ -31,6 +31,29 @@ public class RevenueCatBilling {
         this.activity = activity;
     }
 
+    private static int revenueCatErrorCode(PurchasesError error) {
+        return error.getCode().getCode();
+    }
+
+    /**
+     * Google Play subscription SKUs are often "subscriptionId:basePlanId" in Billing 5 / RevenueCat,
+     * while the app may use the subscription id alone (e.g. "righthere").
+     */
+    private static boolean storeProductMatchesRequested(StoreProduct product, String requested) {
+        if (requested == null || requested.isEmpty()) {
+            return false;
+        }
+        String storeId = product.getId();
+        if (storeId.equals(requested)) {
+            return true;
+        }
+        if (storeId.startsWith(requested + ":")) {
+            return true;
+        }
+        int colon = storeId.indexOf(':');
+        return colon > 0 && storeId.substring(0, colon).equals(requested);
+    }
+
     public void configure(String apiKey, String appUserID) {
         PurchasesConfiguration.Builder configBuilder = new PurchasesConfiguration.Builder(activity, apiKey);
         
@@ -42,7 +65,7 @@ public class RevenueCatBilling {
         configured = true;
         
         // Test connection by fetching offerings
-        Purchases.getSharedInstance().getOfferings(new GetOfferingsCallback() {
+        Purchases.getSharedInstance().getOfferings(new ReceiveOfferingsCallback() {
             @Override
             public void onReceived(Offerings offerings) {
                 connectedChangedHelper(true);
@@ -60,7 +83,7 @@ public class RevenueCatBilling {
             return;
         }
         
-        Purchases.getSharedInstance().getOfferings(new GetOfferingsCallback() {
+        Purchases.getSharedInstance().getOfferings(new ReceiveOfferingsCallback() {
             @Override
             public void onReceived(Offerings offerings) {
                 connectedChangedHelper(true);
@@ -78,7 +101,7 @@ public class RevenueCatBilling {
             return;
         }
 
-        Purchases.getSharedInstance().getOfferings(new GetOfferingsCallback() {
+        Purchases.getSharedInstance().getOfferings(new ReceiveOfferingsCallback() {
             @Override
             public void onReceived(Offerings offerings) {
                 Package foundPackage = null;
@@ -86,7 +109,7 @@ public class RevenueCatBilling {
                 // Search through all offerings
                 for (Offering offering : offerings.getAll().values()) {
                     for (Package pkg : offering.getAvailablePackages()) {
-                        if (pkg.getStoreProduct().getId().equals(productIdentifier)) {
+                        if (storeProductMatchesRequested(pkg.getProduct(), productIdentifier)) {
                             foundPackage = pkg;
                             break;
                         }
@@ -95,14 +118,21 @@ public class RevenueCatBilling {
                 }
                 
                 if (foundPackage != null) {
-                    StoreProduct product = foundPackage.getStoreProduct();
+                    StoreProduct product = foundPackage.getProduct();
                     try {
                         JSONObject json = new JSONObject();
-                        json.put("productId", product.getId());
+                        // Logical id from the app (must match QML Product.identifier) so C++ can resolve the product.
+                        json.put("productId", productIdentifier);
+                        json.put("storeProductId", product.getId());
                         json.put("title", product.getTitle());
                         json.put("description", product.getDescription());
                         json.put("price", product.getPrice().getFormatted());
                         json.put("packageIdentifier", foundPackage.getIdentifier());
+                        Period period = product.getPeriod();
+                        if (period != null) {
+                            json.put("billingPeriodUnit", period.getUnit().ordinal());
+                            json.put("billingPeriodValue", period.getValue());
+                        }
                         productRegistered(json.toString());
                     } catch (JSONException e) {
                         // Error creating JSON
@@ -127,7 +157,7 @@ public class RevenueCatBilling {
             return;
         }
 
-        Purchases.getSharedInstance().getOfferings(new GetOfferingsCallback() {
+        Purchases.getSharedInstance().getOfferings(new ReceiveOfferingsCallback() {
             @Override
             public void onReceived(Offerings offerings) {
                 Package packageToPurchase = null;
@@ -142,7 +172,7 @@ public class RevenueCatBilling {
                     // Find package by product identifier
                     for (Offering offering : offerings.getAll().values()) {
                         for (Package pkg : offering.getAvailablePackages()) {
-                            if (pkg.getStoreProduct().getId().equals(productIdentifier)) {
+                            if (storeProductMatchesRequested(pkg.getProduct(), productIdentifier)) {
                                 packageToPurchase = pkg;
                                 break;
                             }
@@ -163,8 +193,12 @@ public class RevenueCatBilling {
                         public void onCompleted(StoreTransaction storeTransaction, CustomerInfo customerInfo) {
                             try {
                                 JSONObject json = new JSONObject();
-                                json.put("orderId", storeTransaction.getTransactionIdentifier());
-                                json.put("productId", storeTransaction.getProductIdentifier());
+                                String orderId = storeTransaction.getOrderId();
+                                if (orderId == null || orderId.isEmpty()) {
+                                    orderId = storeTransaction.getPurchaseToken();
+                                }
+                                json.put("orderId", orderId != null ? orderId : "");
+                                json.put("productId", productIdentifier);
                                 purchaseSucceeded(json.toString());
                             } catch (JSONException e) {
                                 purchaseFailed(-3);
@@ -176,7 +210,7 @@ public class RevenueCatBilling {
                             if (userCancelled) {
                                 purchaseFailed(1); // User cancelled
                             } else {
-                                purchaseFailed(error.getCode());
+                                purchaseFailed(revenueCatErrorCode(error));
                             }
                         }
                     }
@@ -185,7 +219,7 @@ public class RevenueCatBilling {
 
             @Override
             public void onError(PurchasesError error) {
-                purchaseFailed(error.getCode());
+                purchaseFailed(revenueCatErrorCode(error));
             }
         });
     }
@@ -198,7 +232,7 @@ public class RevenueCatBilling {
         Purchases.getSharedInstance().restorePurchases(new com.revenuecat.purchases.interfaces.ReceiveCustomerInfoCallback() {
             @Override
             public void onReceived(CustomerInfo customerInfo) {
-                for (String productId : customerInfo.getAllPurchasedProductIdentifiers()) {
+                for (String productId : customerInfo.getAllPurchasedProductIds()) {
                     try {
                         JSONObject json = new JSONObject();
                         json.put("orderId", "restored_" + productId);
