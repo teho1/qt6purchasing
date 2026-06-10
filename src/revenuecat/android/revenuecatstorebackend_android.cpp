@@ -4,6 +4,8 @@
 #include <QDebug>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
+#include <QSet>
 #include <QtCore/qcoreapplication_platform.h> // QNativeInterface::QAndroidApplication (Qt 6 Android)
 
 RevenueCatStoreBackend::RevenueCatStoreBackend(QObject * parent) : AbstractStoreBackend(parent)
@@ -33,7 +35,7 @@ void RevenueCatStoreBackend::configure(const QString &apiKey, const QString &app
         return;
     }
 
-    // Initialize Java class
+    // Initialize Java class (RevenueCatBilling ctor takes Context; see GooglePlayBilling)
     _revenueCatJavaClass = new QJniObject(
         "com/climbsmart/crimptronic/RevenueCatBilling",
         QNativeInterface::QAndroidApplication::context());
@@ -51,6 +53,8 @@ void RevenueCatStoreBackend::configure(const QString &apiKey, const QString &app
         {"purchaseRestored", "(Ljava/lang/String;)V", reinterpret_cast<void *>(purchaseRestored)},
         {"purchaseFailed", "(I)V", reinterpret_cast<void *>(jniPurchaseFailed)},
         {"purchaseConsumed", "(Ljava/lang/String;)V", reinterpret_cast<void *>(jniPurchaseConsumed)},
+        {"productRegistrationFailed", "(Ljava/lang/String;)V", reinterpret_cast<void *>(productRegistrationFailed)},
+        {"activeSubscriptionsChanged", "(Ljava/lang/String;)V", reinterpret_cast<void *>(activeSubscriptionsChanged)},
     };
     QJniEnvironment env;
     jclass objectClass = env->GetObjectClass(_revenueCatJavaClass->object<jobject>());
@@ -98,12 +102,14 @@ void RevenueCatStoreBackend::restorePurchases()
 void RevenueCatStoreBackend::registerProduct(AbstractProduct * product)
 {
     if (!_configured) {
-        qWarning() << "RevenueCat not configured, product registration deferred";
+        qWarning() << "RevenueCat not configured; product registration failed for" << product->identifier();
+        product->setStatus(AbstractProduct::Unknown);
         return;
     }
 
     if (!_revenueCatJavaClass || !_revenueCatJavaClass->isValid()) {
         qCritical() << "RevenueCat Java class not initialized";
+        product->setStatus(AbstractProduct::Unknown);
         return;
     }
 
@@ -165,6 +171,55 @@ void RevenueCatStoreBackend::consumePurchase(AbstractTransaction * transaction)
     Q_UNUSED(env)
     Q_UNUSED(object)
     emit RevenueCatStoreBackend::instance()->connectedChanged(connected);
+}
+
+static void applyActiveSubscriptionIds(AbstractStoreBackend *backend, const QJsonArray &activeIds)
+{
+    if (!backend)
+        return;
+
+    QSet<AbstractProduct *> matchedProducts;
+    for (const QJsonValue &value : activeIds) {
+        const QString storeId = value.toString();
+        if (storeId.isEmpty())
+            continue;
+        AbstractProduct *matched = backend->product(storeId);
+        if (matched)
+            matchedProducts.insert(matched);
+    }
+
+    for (AbstractProduct *product : backend->products()) {
+        if (product->productType() != AbstractProduct::Subscription)
+            continue;
+        const bool active = matchedProducts.contains(product);
+        if (product->purchased() != active)
+            product->setPurchased(active);
+    }
+}
+
+/*static*/ void RevenueCatStoreBackend::productRegistrationFailed(JNIEnv * env, jobject object, jstring productIdentifier)
+{
+    Q_UNUSED(object)
+    const char *nativeId = env->GetStringUTFChars(productIdentifier, nullptr);
+    const QString id = QString::fromUtf8(nativeId);
+    env->ReleaseStringUTFChars(productIdentifier, nativeId);
+
+    RevenueCatProduct *product = qobject_cast<RevenueCatProduct*>(
+        RevenueCatStoreBackend::instance()->product(id));
+    if (product) {
+        product->setStatus(AbstractProduct::Unknown);
+        qWarning() << "[IAP] Subscription product not found in RevenueCat offerings for id:" << id;
+    }
+}
+
+/*static*/ void RevenueCatStoreBackend::activeSubscriptionsChanged(JNIEnv * env, jobject object, jstring activeProductIdsJson)
+{
+    Q_UNUSED(object)
+    const char *nativeMessage = env->GetStringUTFChars(activeProductIdsJson, nullptr);
+    const QJsonArray activeIds = QJsonDocument::fromJson(QByteArray(nativeMessage)).array();
+    env->ReleaseStringUTFChars(activeProductIdsJson, nativeMessage);
+
+    applyActiveSubscriptionIds(RevenueCatStoreBackend::instance(), activeIds);
 }
 
 /*static*/ void RevenueCatStoreBackend::productRegistered(JNIEnv * env, jobject object, jstring productJson)

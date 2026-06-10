@@ -33,6 +33,8 @@ public:
     // Names must not shadow QObject signals purchaseFailed / purchaseConsumed.
     static void jniPurchaseFailed(JNIEnv * env, jobject object, jint errorCode);
     static void jniPurchaseConsumed(JNIEnv * env, jobject object, jstring transactionJson);
+    static void productRegistrationFailed(JNIEnv * env, jobject object, jstring productIdentifier);
+    static void activeSubscriptionsChanged(JNIEnv * env, jobject object, jstring activeProductIdsJson);
 
 private:
     QJniObject * _revenueCatJavaClass = nullptr;
