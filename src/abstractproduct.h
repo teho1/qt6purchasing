@@ -55,6 +55,7 @@ public:
 
     void registerInStore();
 
+    Q_INVOKABLE void reloadFromStore();
     Q_INVOKABLE void purchase();
 
     QString receipt() const;

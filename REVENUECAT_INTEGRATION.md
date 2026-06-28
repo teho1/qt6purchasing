@@ -164,6 +164,26 @@ Use RevenueCat's sandbox environment for testing:
 - Android: Use license testing accounts
 - Both: RevenueCat dashboard shows test purchases
 
+### iOS local debug (device or simulator)
+
+RevenueCat offerings come from App Store Connect (or a local StoreKit Configuration file). If products are not linked correctly, the SDK logs:
+
+`RevenueCat error fetching offerings: None of the products registered in the RevenueCat dashboard could be fetched from App Store Connect`
+
+**Option A — StoreKit Configuration (recommended for Xcode/Qt Creator debug builds):**
+
+1. Use `main/platforms/ios/Righthere.storekit` (product id `com.righthere.subscription.monthly`).
+2. In the Xcode scheme (or Qt Creator iOS run settings), set **StoreKit Configuration** to that file so StoreKit serves products locally without live App Store Connect.
+
+**Option B — Sandbox + live catalog:**
+
+1. Create the subscription in App Store Connect with id `com.righthere.subscription.monthly`.
+2. Link the same product id in the RevenueCat dashboard offering.
+3. Sign in on the test device with an App Store **Sandbox** tester account.
+4. Build with a RevenueCat **Apple** API key (`appl_...`) baked at CMake configure time (`-DREVENUECAT_API_KEY=...`).
+
+CustomerInfo (active/expired subscription) can still load when offerings fail; the app should show subscription status from RevenueCat or Firestore `monthly_subscription_active` instead of staying on "Ladataan".
+
 ## Notes
 
 - RevenueCat SDK must be installed separately (not included in this wrapper)

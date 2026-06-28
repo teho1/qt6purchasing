@@ -62,6 +62,16 @@ static BOOL rh_storeProductIdMatchesRequested(NSString *storeId, NSString *reque
     return self;
 }
 
+- (void)markQtProductRegistrationFailed:(NSString *)identifier
+{
+    if (identifier.length == 0)
+        return;
+    RevenueCatProduct *qtProduct = qobject_cast<RevenueCatProduct *>(
+        backend->product(QString::fromNSString(identifier)));
+    if (qtProduct)
+        qtProduct->setStatus(AbstractProduct::Unknown);
+}
+
 - (void)configureWithAPIKey:(NSString *)apiKey appUserID:(NSString *)appUserID {
     if (appUserID && appUserID.length > 0) {
         [RCPurchases configureWithAPIKey:apiKey appUserID:appUserID];
@@ -77,8 +87,10 @@ static BOOL rh_storeProductIdMatchesRequested(NSString *storeId, NSString *reque
             NSLog(@"RevenueCat error fetching offerings: %@", error.localizedDescription);
         } else {
             NSLog(@"RevenueCat connected successfully");
-            QMetaObject::invokeMethod(backend, "connectedChanged", Qt::AutoConnection, Q_ARG(bool, true));
         }
+        // Mark connected even when offerings fail — CustomerInfo / restore still work and
+        // products must leave PendingRegistration instead of staying on "Loading" forever.
+        QMetaObject::invokeMethod(backend, "connectedChanged", Qt::AutoConnection, Q_ARG(bool, true));
         // Delegate may have fired before Qt products were registered; force a fresh CustomerInfo
         // from the network so subscription state matches App Store / RevenueCat.
         [self fetchCurrentCustomerInfoAndApply];
@@ -89,6 +101,7 @@ static BOOL rh_storeProductIdMatchesRequested(NSString *storeId, NSString *reque
     [RCPurchases.sharedPurchases getOfferingsWithCompletion:^(RCOfferings *offerings, NSError *error) {
         if (error) {
             NSLog(@"RevenueCat error fetching offerings: %@", error.localizedDescription);
+            [self markQtProductRegistrationFailed:identifier];
             return;
         }
         
@@ -114,6 +127,8 @@ static BOOL rh_storeProductIdMatchesRequested(NSString *storeId, NSString *reque
             }
             NSLog(@"RevenueCat: no package for app id \"%@\". Store product ids in offerings: [%@]",
                   identifier, seen.length ? seen : @"(none — check RevenueCat offering / App Store Connect)");
+            [self markQtProductRegistrationFailed:identifier];
+            return;
         }
 
         if (foundPackage) {

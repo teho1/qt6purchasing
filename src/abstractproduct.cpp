@@ -103,6 +103,10 @@ void AbstractProduct::registerInStore()
     AbstractStoreBackend::instance()->registerProduct(this);
 }
 
+void AbstractProduct::reloadFromStore()
+{
+    registerInStore();
+}
 
 void AbstractProduct::purchase()
 {
