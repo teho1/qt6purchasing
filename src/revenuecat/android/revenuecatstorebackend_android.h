@@ -10,12 +10,14 @@ class RevenueCatStoreBackend : public AbstractStoreBackend
     Q_OBJECT
     // Matches iOS backend: QML only calls configure() when true (see main.qml).
     Q_PROPERTY(bool supportsConfigure READ supportsConfigure CONSTANT)
+    Q_PROPERTY(bool supportsLogIn READ supportsLogIn CONSTANT)
 
 public:
     explicit RevenueCatStoreBackend(QObject * parent = nullptr);
     ~RevenueCatStoreBackend();
 
     bool supportsConfigure() const { return true; }
+    bool supportsLogIn() const { return true; }
 
     void startConnection() override;
     void registerProduct(AbstractProduct * product) override;
@@ -24,6 +26,8 @@ public:
 
     Q_INVOKABLE void configure(const QString &apiKey, const QString &appUserID = QString());
     Q_INVOKABLE void restorePurchases();
+    Q_INVOKABLE void logIn(const QString &appUserID) override;
+    Q_INVOKABLE void logOut() override;
 
     // JNI callbacks
     static void connectedChangedHelper(JNIEnv * env, jobject object, jboolean connected);

@@ -47,6 +47,8 @@ static BOOL rh_storeProductIdMatchesRequested(NSString *storeId, NSString *reque
 - (void)registerProductWithIdentifier:(NSString *)identifier;
 - (void)purchaseProductWithIdentifier:(NSString *)identifier packageIdentifier:(NSString *)packageId;
 - (void)restorePurchases;
+- (void)logInWithAppUserID:(NSString *)appUserID;
+- (void)logOut;
 - (void)applyCustomerInfo:(RCCustomerInfo *)customerInfo;
 - (void)fetchCurrentCustomerInfoAndApply;
 - (BOOL)isQtProductPurchased:(AbstractProduct *)product inCustomerInfo:(RCCustomerInfo *)customerInfo;
@@ -241,6 +243,34 @@ static BOOL rh_storeProductIdMatchesRequested(NSString *storeId, NSString *reque
             
             QMetaObject::invokeMethod(backend, "purchaseRestored", Qt::AutoConnection, Q_ARG(AbstractTransaction*, qtTransaction));
         }
+    }];
+}
+
+- (void)logInWithAppUserID:(NSString *)appUserID {
+    if (!appUserID || appUserID.length == 0) {
+        NSLog(@"RevenueCat logIn: empty app user ID");
+        return;
+    }
+
+    [RCPurchases.sharedPurchases logIn:appUserID
+                            completion:^(RCCustomerInfo *customerInfo, BOOL created, NSError *error) {
+        if (error) {
+            NSLog(@"RevenueCat logIn error: %@", error.localizedDescription);
+            return;
+        }
+        NSLog(@"RevenueCat logIn success for %@ (created=%@)", appUserID, created ? @"YES" : @"NO");
+        [self applyCustomerInfo:customerInfo];
+    }];
+}
+
+- (void)logOut {
+    [RCPurchases.sharedPurchases logOutWithCompletion:^(RCCustomerInfo *customerInfo, NSError *error) {
+        if (error) {
+            NSLog(@"RevenueCat logOut error: %@", error.localizedDescription);
+            return;
+        }
+        NSLog(@"RevenueCat logOut success");
+        [self applyCustomerInfo:customerInfo];
     }];
 }
 
@@ -450,4 +480,31 @@ void RevenueCatStoreBackend::restorePurchases()
         return;
     }
     [_manager restorePurchases];
+}
+
+void RevenueCatStoreBackend::logIn(const QString &appUserID)
+{
+    if (!_configured || !_manager) {
+        qWarning() << "[IAP] RevenueCat not configured; logIn deferred for" << appUserID;
+        return;
+    }
+    if (appUserID.isEmpty()) {
+        qWarning() << "[IAP] RevenueCat logIn: empty app user ID";
+        return;
+    }
+
+    qDebug() << "[IAP] logIn uid" << appUserID;
+    NSString *uid = [NSString stringWithUTF8String:appUserID.toUtf8().constData()];
+    [_manager logInWithAppUserID:uid];
+}
+
+void RevenueCatStoreBackend::logOut()
+{
+    if (!_configured || !_manager) {
+        qDebug() << "[IAP] RevenueCat not configured; logOut no-op";
+        return;
+    }
+
+    qDebug() << "[IAP] logOut";
+    [_manager logOut];
 }

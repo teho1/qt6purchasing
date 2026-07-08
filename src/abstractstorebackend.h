@@ -21,12 +21,18 @@ public:
     AbstractProduct * product(const QString &identifier);
     bool isConnected() const { return _connected; }
 
+    Q_PROPERTY(bool supportsLogIn READ supportsLogIn CONSTANT)
+
     virtual void startConnection() = 0;
     /** QML cannot call pure virtuals; delegates to the concrete store implementation. */
     Q_INVOKABLE void startStoreConnection() { startConnection(); }
     virtual void registerProduct(AbstractProduct * product) = 0;
     virtual void purchaseProduct(AbstractProduct * product) = 0;
     virtual void consumePurchase(AbstractTransaction * transaction) = 0;
+
+    virtual bool supportsLogIn() const { return false; }
+    Q_INVOKABLE virtual void logIn(const QString &appUserID) { Q_UNUSED(appUserID); }
+    Q_INVOKABLE virtual void logOut() {}
 
 protected:
     explicit AbstractStoreBackend(QObject * parent = nullptr);

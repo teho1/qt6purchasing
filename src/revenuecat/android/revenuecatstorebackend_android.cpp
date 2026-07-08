@@ -99,6 +99,44 @@ void RevenueCatStoreBackend::restorePurchases()
     _revenueCatJavaClass->callMethod<void>("restorePurchases");
 }
 
+void RevenueCatStoreBackend::logIn(const QString &appUserID)
+{
+    if (!_configured) {
+        qWarning() << "[IAP] RevenueCat not configured; logIn deferred for" << appUserID;
+        return;
+    }
+    if (appUserID.isEmpty()) {
+        qWarning() << "[IAP] RevenueCat logIn: empty app user ID";
+        return;
+    }
+    if (!_revenueCatJavaClass || !_revenueCatJavaClass->isValid()) {
+        qWarning() << "[IAP] RevenueCat Java bridge not initialized; cannot logIn";
+        return;
+    }
+
+    qDebug() << "[IAP] logIn uid" << appUserID;
+    _revenueCatJavaClass->callMethod<void>(
+        "logIn",
+        "(Ljava/lang/String;)V",
+        QJniObject::fromString(appUserID).object<jstring>()
+    );
+}
+
+void RevenueCatStoreBackend::logOut()
+{
+    if (!_configured) {
+        qDebug() << "[IAP] RevenueCat not configured; logOut no-op";
+        return;
+    }
+    if (!_revenueCatJavaClass || !_revenueCatJavaClass->isValid()) {
+        qDebug() << "[IAP] RevenueCat Java bridge not initialized; logOut no-op";
+        return;
+    }
+
+    qDebug() << "[IAP] logOut";
+    _revenueCatJavaClass->callMethod<void>("logOut");
+}
+
 void RevenueCatStoreBackend::registerProduct(AbstractProduct * product)
 {
     if (!_configured) {

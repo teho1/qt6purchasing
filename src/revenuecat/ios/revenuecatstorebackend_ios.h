@@ -13,11 +13,13 @@ class RevenueCatStoreBackend : public AbstractStoreBackend
     // QML guard: only configure() when this returns true, so the DummyStoreBackend
     // (which has no configure method) never causes a QML warning.
     Q_PROPERTY(bool supportsConfigure READ supportsConfigure CONSTANT)
+    Q_PROPERTY(bool supportsLogIn READ supportsLogIn CONSTANT)
 public:
     RevenueCatStoreBackend(QObject * parent = nullptr);
     ~RevenueCatStoreBackend();
 
     bool supportsConfigure() const { return true; }
+    bool supportsLogIn() const { return true; }
 
     void startConnection() override;
     void registerProduct(AbstractProduct * product) override;
@@ -26,6 +28,8 @@ public:
 
     Q_INVOKABLE void configure(const QString &apiKey, const QString &appUserID = QString());
     Q_INVOKABLE void restorePurchases();
+    Q_INVOKABLE void logIn(const QString &appUserID) override;
+    Q_INVOKABLE void logOut() override;
 
 protected:
     void initializePlatform();

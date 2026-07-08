@@ -410,4 +410,48 @@ public class RevenueCatBilling {
             }
         });
     }
+
+    public void logIn(String appUserID) {
+        if (!configured) {
+            Log.w(TAG, "logIn called before configure");
+            return;
+        }
+        if (appUserID == null || appUserID.isEmpty()) {
+            Log.w(TAG, "logIn: empty app user ID");
+            return;
+        }
+
+        Purchases.getSharedInstance().logIn(appUserID, new com.revenuecat.purchases.interfaces.LogInCallback() {
+            @Override
+            public void onReceived(CustomerInfo customerInfo, boolean created) {
+                Log.i(TAG, "logIn success for " + appUserID + " (created=" + created + ")");
+                notifyActiveSubscriptions(customerInfo);
+            }
+
+            @Override
+            public void onError(PurchasesError error) {
+                Log.w(TAG, "logIn error for " + appUserID + ": " + error.getMessage());
+            }
+        });
+    }
+
+    public void logOut() {
+        if (!configured) {
+            Log.w(TAG, "logOut called before configure");
+            return;
+        }
+
+        Purchases.getSharedInstance().logOut(new com.revenuecat.purchases.interfaces.ReceiveCustomerInfoCallback() {
+            @Override
+            public void onReceived(CustomerInfo customerInfo) {
+                Log.i(TAG, "logOut success");
+                notifyActiveSubscriptions(customerInfo);
+            }
+
+            @Override
+            public void onError(PurchasesError error) {
+                Log.w(TAG, "logOut error: " + error.getMessage());
+            }
+        });
+    }
 }
