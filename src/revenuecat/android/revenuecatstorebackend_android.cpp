@@ -55,6 +55,8 @@ void RevenueCatStoreBackend::configure(const QString &apiKey, const QString &app
         {"purchaseConsumed", "(Ljava/lang/String;)V", reinterpret_cast<void *>(jniPurchaseConsumed)},
         {"productRegistrationFailed", "(Ljava/lang/String;)V", reinterpret_cast<void *>(productRegistrationFailed)},
         {"activeSubscriptionsChanged", "(Ljava/lang/String;)V", reinterpret_cast<void *>(activeSubscriptionsChanged)},
+        {"logInFinished", "(Ljava/lang/String;ZILjava/lang/String;)V", reinterpret_cast<void *>(jniLogInFinished)},
+        {"restoreFinished", "(ZILjava/lang/String;)V", reinterpret_cast<void *>(jniRestoreFinished)},
     };
     QJniEnvironment env;
     jclass objectClass = env->GetObjectClass(_revenueCatJavaClass->object<jobject>());
@@ -90,10 +92,12 @@ void RevenueCatStoreBackend::restorePurchases()
 {
     if (!_configured) {
         qWarning() << "RevenueCat not configured; cannot restore purchases";
+        emit restoreFinished(false, false, -1, QStringLiteral("RevenueCat not configured"));
         return;
     }
     if (!_revenueCatJavaClass || !_revenueCatJavaClass->isValid()) {
         qWarning() << "RevenueCat Java bridge not initialized; cannot restore purchases";
+        emit restoreFinished(false, false, -1, QStringLiteral("RevenueCat bridge not initialized"));
         return;
     }
     _revenueCatJavaClass->callMethod<void>("restorePurchases");
@@ -102,15 +106,18 @@ void RevenueCatStoreBackend::restorePurchases()
 void RevenueCatStoreBackend::logIn(const QString &appUserID)
 {
     if (!_configured) {
-        qWarning() << "[IAP] RevenueCat not configured; logIn deferred for" << appUserID;
+        qWarning() << "[IAP] RevenueCat not configured; cannot logIn" << appUserID;
+        emit logInFinished(appUserID, false, -1, QStringLiteral("RevenueCat not configured"));
         return;
     }
     if (appUserID.isEmpty()) {
         qWarning() << "[IAP] RevenueCat logIn: empty app user ID";
+        emit logInFinished(appUserID, false, -1, QStringLiteral("Empty app user ID"));
         return;
     }
     if (!_revenueCatJavaClass || !_revenueCatJavaClass->isValid()) {
         qWarning() << "[IAP] RevenueCat Java bridge not initialized; cannot logIn";
+        emit logInFinished(appUserID, false, -1, QStringLiteral("RevenueCat bridge not initialized"));
         return;
     }
 
@@ -346,4 +353,52 @@ static void applyActiveSubscriptionIds(AbstractStoreBackend *backend, const QJso
     );
 
     emit RevenueCatStoreBackend::instance()->purchaseConsumed(transaction);
+}
+
+static QString jstringToQString(JNIEnv *env, jstring value)
+{
+    if (!value)
+        return QString();
+    const char *chars = env->GetStringUTFChars(value, nullptr);
+    const QString result = QString::fromUtf8(chars);
+    env->ReleaseStringUTFChars(value, chars);
+    return result;
+}
+
+/*static*/ void RevenueCatStoreBackend::jniLogInFinished(JNIEnv * env, jobject object, jstring appUserID,
+                                                         jboolean success, jint errorCode, jstring errorMessage)
+{
+    Q_UNUSED(object)
+    AbstractStoreBackend *backend = RevenueCatStoreBackend::instance();
+    const QString uid = jstringToQString(env, appUserID);
+    const QString message = jstringToQString(env, errorMessage);
+    const bool ok = success;
+    const int code = errorCode;
+    if (!ok)
+        qWarning() << "[IAP] RevenueCat logIn failed for" << uid << "code" << code << message;
+    // RevenueCat callbacks run on the Android main thread; deliver on the Qt thread. Queued after
+    // activeSubscriptionsChanged() already updated the products, so listeners see the new state.
+    QMetaObject::invokeMethod(backend, [backend, uid, ok, code, message]() {
+        emit backend->logInFinished(uid, ok, code, message);
+    }, Qt::QueuedConnection);
+}
+
+/*static*/ void RevenueCatStoreBackend::jniRestoreFinished(JNIEnv * env, jobject object, jboolean success,
+                                                           jint errorCode, jstring errorMessage)
+{
+    Q_UNUSED(object)
+    AbstractStoreBackend *backend = RevenueCatStoreBackend::instance();
+    const QString message = jstringToQString(env, errorMessage);
+    const bool ok = success;
+    const int code = errorCode;
+    if (!ok)
+        qWarning() << "[IAP] RevenueCat restore failed, code" << code << message;
+    QMetaObject::invokeMethod(backend, [backend, ok, code, message]() {
+        bool hasActive = false;
+        for (AbstractProduct *product : backend->products()) {
+            if (product->productType() == AbstractProduct::Subscription && product->purchased())
+                hasActive = true;
+        }
+        emit backend->restoreFinished(ok, ok && hasActive, code, message);
+    }, Qt::QueuedConnection);
 }
