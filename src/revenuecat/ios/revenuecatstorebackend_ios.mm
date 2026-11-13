@@ -442,6 +442,11 @@ void RevenueCatStoreBackend::initializePlatform()
     NSString *appUserID = _appUserID.isEmpty() ? nil : [NSString stringWithUTF8String:_appUserID.toUtf8().constData()];
     
     [_manager configureWithAPIKey:apiKey appUserID:appUserID];
+    // TestFlight / Xcode builds use the App Store sandbox, where production subscriptions
+    // are not visible; expose it so the UI can explain an unexpected paywall.
+    setSandbox(RCPurchases.sharedPurchases.isSandbox);
+    if (isSandbox())
+        qWarning() << "[IAP] RevenueCat is running against the App Store sandbox";
 }
 
 void RevenueCatStoreBackend::cleanupPlatform()

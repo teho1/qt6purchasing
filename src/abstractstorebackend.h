@@ -22,6 +22,12 @@ public:
     bool isConnected() const { return _connected; }
 
     Q_PROPERTY(bool supportsLogIn READ supportsLogIn CONSTANT)
+    /**
+     * True when the store runs against a sandbox environment (e.g. iOS TestFlight / Xcode).
+     * Purchases from the production store are not visible there, so a paywall is expected.
+     */
+    Q_PROPERTY(bool sandbox READ isSandbox NOTIFY sandboxChanged)
+    bool isSandbox() const { return _sandbox; }
 
     virtual void startConnection() = 0;
     /** QML cannot call pure virtuals; delegates to the concrete store implementation. */
@@ -39,9 +45,18 @@ protected:
     static AbstractStoreBackend * _instance;
     QList<AbstractProduct *> _products;
     bool _connected = false;
+    bool _sandbox = false;
+    void setSandbox(bool sandbox)
+    {
+        if (_sandbox == sandbox)
+            return;
+        _sandbox = sandbox;
+        emit sandboxChanged();
+    }
 
 signals:
     void connectedChanged(bool connected);
+    void sandboxChanged();
     void productRegistered(AbstractProduct * product);
     void purchaseSucceeded(AbstractTransaction * transaction);
     void purchaseRestored(AbstractTransaction * transaction);
