@@ -34,6 +34,8 @@ public class RevenueCatBilling {
     private static native void purchaseConsumed(String transactionJson);
     private static native void productRegistrationFailed(String productIdentifier);
     private static native void activeSubscriptionsChanged(String activeProductIdsJson);
+    private static native void logInFinished(String appUserID, boolean success, int errorCode, String errorMessage);
+    private static native void restoreFinished(boolean success, int errorCode, String errorMessage);
 
     private static final String TAG = "RevenueCatBilling";
 
@@ -385,6 +387,8 @@ public class RevenueCatBilling {
 
     public void restorePurchases() {
         if (!configured) {
+            Log.w(TAG, "restorePurchases called before configure");
+            restoreFinished(false, -1, "RevenueCat not configured");
             return;
         }
 
@@ -402,11 +406,20 @@ public class RevenueCatBilling {
                         Log.w(TAG, "restorePurchases JSON error", e);
                     }
                 }
+                Log.i(TAG, "restorePurchases finished; active subscriptions: "
+                        + customerInfo.getActiveSubscriptions());
+                restoreFinished(true, 0, "");
             }
 
             @Override
             public void onError(PurchasesError error) {
-                // Restore failed
+                // e.g. ReceiptAlreadyInUseError (7) when the Play purchase belongs to another
+                // RevenueCat App User ID. Swallowing this left the paywall up with no feedback.
+                Log.w(TAG, "restorePurchases error " + error.getCode() + " ("
+                        + revenueCatErrorCode(error) + "): " + error.getMessage()
+                        + (error.getUnderlyingErrorMessage() != null
+                           ? " / " + error.getUnderlyingErrorMessage() : ""));
+                restoreFinished(false, revenueCatErrorCode(error), error.getMessage());
             }
         });
     }
@@ -414,10 +427,12 @@ public class RevenueCatBilling {
     public void logIn(String appUserID) {
         if (!configured) {
             Log.w(TAG, "logIn called before configure");
+            logInFinished(appUserID != null ? appUserID : "", false, -1, "RevenueCat not configured");
             return;
         }
         if (appUserID == null || appUserID.isEmpty()) {
             Log.w(TAG, "logIn: empty app user ID");
+            logInFinished("", false, -1, "Empty app user ID");
             return;
         }
 
@@ -426,11 +441,14 @@ public class RevenueCatBilling {
             public void onReceived(CustomerInfo customerInfo, boolean created) {
                 Log.i(TAG, "logIn success for " + appUserID + " (created=" + created + ")");
                 notifyActiveSubscriptions(customerInfo);
+                logInFinished(appUserID, true, 0, "");
             }
 
             @Override
             public void onError(PurchasesError error) {
-                Log.w(TAG, "logIn error for " + appUserID + ": " + error.getMessage());
+                Log.w(TAG, "logIn error for " + appUserID + ": " + error.getCode() + " "
+                        + error.getMessage());
+                logInFinished(appUserID, false, revenueCatErrorCode(error), error.getMessage());
             }
         });
     }

@@ -47,6 +47,14 @@ signals:
     void purchaseRestored(AbstractTransaction * transaction);
     void purchaseFailed(int code);
     void purchaseConsumed(AbstractTransaction * transaction);
+    /** Result of logIn(). Emitted on the Qt (GUI) thread by backends that support logIn. */
+    void logInFinished(const QString &appUserID, bool success, int errorCode, const QString &errorMessage);
+    /**
+     * Result of restorePurchases(). hasActiveSubscription is true when the restored customer
+     * owns an active subscription for a registered product. errorCode is the store SDK error
+     * code (RevenueCat PurchasesErrorCode, e.g. 7 = receipt already in use) or 0 on success.
+     */
+    void restoreFinished(bool success, bool hasActiveSubscription, int errorCode, const QString &errorMessage);
 };
 
 #endif // ABSTRACTSTOREBACKEND_H

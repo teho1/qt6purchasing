@@ -39,6 +39,10 @@ public:
     static void jniPurchaseConsumed(JNIEnv * env, jobject object, jstring transactionJson);
     static void productRegistrationFailed(JNIEnv * env, jobject object, jstring productIdentifier);
     static void activeSubscriptionsChanged(JNIEnv * env, jobject object, jstring activeProductIdsJson);
+    static void jniLogInFinished(JNIEnv * env, jobject object, jstring appUserID, jboolean success,
+                                 jint errorCode, jstring errorMessage);
+    static void jniRestoreFinished(JNIEnv * env, jobject object, jboolean success, jint errorCode,
+                                   jstring errorMessage);
 
 private:
     QJniObject * _revenueCatJavaClass = nullptr;

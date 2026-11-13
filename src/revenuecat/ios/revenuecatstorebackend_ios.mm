@@ -49,6 +49,8 @@ static BOOL rh_storeProductIdMatchesRequested(NSString *storeId, NSString *reque
 - (void)restorePurchases;
 - (void)logInWithAppUserID:(NSString *)appUserID;
 - (void)logOut;
+- (void)emitRestoreFinished:(BOOL)success active:(BOOL)active errorCode:(int)code message:(NSString *)message;
+- (void)emitLogInFinished:(NSString *)appUserID success:(BOOL)success errorCode:(int)code message:(NSString *)message;
 - (void)applyCustomerInfo:(RCCustomerInfo *)customerInfo;
 - (void)fetchCurrentCustomerInfoAndApply;
 - (BOOL)isQtProductPurchased:(AbstractProduct *)product inCustomerInfo:(RCCustomerInfo *)customerInfo;
@@ -220,11 +222,22 @@ static BOOL rh_storeProductIdMatchesRequested(NSString *storeId, NSString *reque
 - (void)restorePurchases {
     [RCPurchases.sharedPurchases restorePurchasesWithCompletion:^(RCCustomerInfo *customerInfo, NSError *error) {
         if (error) {
-            NSLog(@"RevenueCat restore error: %@", error.localizedDescription);
+            // Surface the failure (e.g. RCReceiptAlreadyInUseError when the App Store receipt
+            // belongs to another RevenueCat App User ID); swallowing it left the paywall up
+            // with no explanation.
+            NSLog(@"RevenueCat restore error (code %ld): %@", (long)error.code, error.localizedDescription);
+            [self emitRestoreFinished:NO active:NO errorCode:(int)error.code message:error.localizedDescription];
             return;
         }
 
         [self applyCustomerInfo:customerInfo];
+
+        BOOL hasActive = NO;
+        for (AbstractProduct *product : backend->products()) {
+            if (product->productType() == AbstractProduct::Subscription
+                && [self isQtProductPurchased:product inCustomerInfo:customerInfo])
+                hasActive = YES;
+        }
 
         for (NSString *productId in customerInfo.allPurchasedProductIdentifiers) {
             AbstractProduct *qtProduct = backend->product(QString::fromNSString(productId));
@@ -243,7 +256,30 @@ static BOOL rh_storeProductIdMatchesRequested(NSString *storeId, NSString *reque
             
             QMetaObject::invokeMethod(backend, "purchaseRestored", Qt::AutoConnection, Q_ARG(AbstractTransaction*, qtTransaction));
         }
+
+        NSLog(@"RevenueCat restore finished (active subscription: %@)", hasActive ? @"YES" : @"NO");
+        [self emitRestoreFinished:YES active:hasActive errorCode:0 message:nil];
     }];
+}
+
+- (void)emitRestoreFinished:(BOOL)success active:(BOOL)active errorCode:(int)code message:(NSString *)message {
+    AbstractStoreBackend *b = backend;
+    const bool ok = success;
+    const bool act = active;
+    const QString msg = message ? QString::fromNSString(message) : QString();
+    QMetaObject::invokeMethod(b, [b, ok, act, code, msg]() {
+        emit b->restoreFinished(ok, act, code, msg);
+    }, Qt::AutoConnection);
+}
+
+- (void)emitLogInFinished:(NSString *)appUserID success:(BOOL)success errorCode:(int)code message:(NSString *)message {
+    AbstractStoreBackend *b = backend;
+    const QString uid = QString::fromNSString(appUserID);
+    const bool ok = success;
+    const QString msg = message ? QString::fromNSString(message) : QString();
+    QMetaObject::invokeMethod(b, [b, uid, ok, code, msg]() {
+        emit b->logInFinished(uid, ok, code, msg);
+    }, Qt::AutoConnection);
 }
 
 - (void)logInWithAppUserID:(NSString *)appUserID {
@@ -255,11 +291,15 @@ static BOOL rh_storeProductIdMatchesRequested(NSString *storeId, NSString *reque
     [RCPurchases.sharedPurchases logIn:appUserID
                             completion:^(RCCustomerInfo *customerInfo, BOOL created, NSError *error) {
         if (error) {
-            NSLog(@"RevenueCat logIn error: %@", error.localizedDescription);
+            NSLog(@"RevenueCat logIn error (code %ld): %@", (long)error.code, error.localizedDescription);
+            [self emitLogInFinished:appUserID success:NO errorCode:(int)error.code message:error.localizedDescription];
             return;
         }
         NSLog(@"RevenueCat logIn success for %@ (created=%@)", appUserID, created ? @"YES" : @"NO");
         [self applyCustomerInfo:customerInfo];
+        // Queued after applyCustomerInfo's purchased-state updates, so listeners already see
+        // the logged-in user's subscription state.
+        [self emitLogInFinished:appUserID success:YES errorCode:0 message:nil];
     }];
 }
 
@@ -477,6 +517,7 @@ void RevenueCatStoreBackend::restorePurchases()
 {
     if (!_configured || !_manager) {
         qWarning() << "RevenueCat not configured; cannot restore purchases";
+        emit restoreFinished(false, false, -1, QStringLiteral("RevenueCat not configured"));
         return;
     }
     [_manager restorePurchases];
@@ -485,11 +526,13 @@ void RevenueCatStoreBackend::restorePurchases()
 void RevenueCatStoreBackend::logIn(const QString &appUserID)
 {
     if (!_configured || !_manager) {
-        qWarning() << "[IAP] RevenueCat not configured; logIn deferred for" << appUserID;
+        qWarning() << "[IAP] RevenueCat not configured; cannot logIn" << appUserID;
+        emit logInFinished(appUserID, false, -1, QStringLiteral("RevenueCat not configured"));
         return;
     }
     if (appUserID.isEmpty()) {
         qWarning() << "[IAP] RevenueCat logIn: empty app user ID";
+        emit logInFinished(appUserID, false, -1, QStringLiteral("Empty app user ID"));
         return;
     }
 
